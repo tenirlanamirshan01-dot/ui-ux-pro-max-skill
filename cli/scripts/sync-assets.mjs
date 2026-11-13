@@ -37,6 +37,13 @@ const subSkills = ['banner-design', 'brand', 'design', 'design-system', 'slides'
 const orchestratorSkillTargetRoot = join(skillsSourceRoot, 'ui-ux-pro-max');
 const orchestratorDirsToSync = ['data', 'scripts'];
 
+// Single files mirrored outside the dir syncs above. gallery/data/styles.csv
+// used to be a symlink, which breaks zip uploads ("Zip file contains a
+// symbolic link") and git-on-Windows checkouts, so it is a real copy now.
+const singleFilesToSync = [
+  ['src/ui-ux-pro-max/data/styles.csv', 'gallery/data/styles.csv'],
+];
+
 // ponytail: only text is bundled. Excludes (a) heavy binary assets — the
 // canvas fonts are ~5.8MB and a skill registers from its SKILL.md, not its
 // fonts — and (b) Python build cruft (__pycache__/*.pyc, .coverage) that would
@@ -162,6 +169,15 @@ async function checkAssets() {
     );
   }
 
+  for (const [src, dst] of singleFilesToSync) {
+    const dstPath = join(repoRoot, dst);
+    if (!(await exists(dstPath))) {
+      drift.push(`missing asset file: ${dst}`);
+    } else if ((await fileHash(join(repoRoot, src))) !== (await fileHash(dstPath))) {
+      drift.push(`stale asset file: ${dst}`);
+    }
+  }
+
   if (drift.length > 0) {
     console.error('Assets are out of sync with src/ui-ux-pro-max:');
     for (const item of drift) {
@@ -195,6 +211,13 @@ async function syncAssets() {
   // Orchestrator skill's own data/scripts copy under .claude/skills/ui-ux-pro-max/.
   for (const dir of orchestratorDirsToSync) {
     await syncDir(join(sourceRoot, dir), join(orchestratorSkillTargetRoot, dir));
+  }
+
+  for (const [src, dst] of singleFilesToSync) {
+    const dstPath = assertInsideRepo(join(repoRoot, dst));
+    await rm(dstPath, { force: true });
+    await mkdir(dirname(dstPath), { recursive: true });
+    await writeFile(dstPath, toLF(await readFile(join(repoRoot, src), 'utf8')));
   }
 
   console.log('Synced CLI assets + .claude/skills/ui-ux-pro-max data/scripts from src/ui-ux-pro-max, and 6 sub-skills (normalized to LF).');
